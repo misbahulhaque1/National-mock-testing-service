@@ -14,6 +14,10 @@ import {
   Notice, DownloadItem, AuditLog, SystemNotification, SystemSettings, ExamCategory, QuestionType 
 } from "./src/types";
 import { ntsExam, ntsQuestions } from "./src/nts_exam_data";
+import bcryptjs from "bcryptjs";
+import { db } from "./src/db/index.ts";
+import * as schema from "./src/db/schema.ts";
+import { eq, and, or, like, desc, asc } from "drizzle-orm";
 
 dotenv.config();
 
@@ -21,21 +25,6 @@ const app = express();
 app.use(express.json({ limit: "20mb" }));
 
 const PORT = 3000;
-const DB_FILE = path.join(process.cwd(), "nmts_db.json");
-
-// Define Storage Interface
-interface LocalDatabase {
-  users: User[];
-  exams: Exam[];
-  questions: Question[];
-  examAttempts: ExamAttempt[];
-  certificates: Certificate[];
-  notices: Notice[];
-  downloads: DownloadItem[];
-  auditLogs: AuditLog[];
-  notifications: SystemNotification[];
-  settings: SystemSettings;
-}
 
 // Global default settings
 const defaultSettings: SystemSettings = {
@@ -65,351 +54,25 @@ const defaultSettings: SystemSettings = {
   statCentersCount: 20
 };
 
-// Initial Premium Seed Data for NMTS
-const initialSeedData = (): LocalDatabase => {
-  const users: User[] = [
-    {
-      id: "admin-1",
-      name: "Portal Administrator",
-      email: "admin@nmts-portal.org",
-      role: UserRole.SUPER_ADMIN,
-      cnic: "37405-1234567-1",
-      registrationDate: "2026-01-01T09:00:00Z"
-    },
-    {
-      id: "candidate-1",
-      name: "Ali Ahmed Khan",
-      email: "candidate@nmts-portal.org",
-      role: UserRole.CANDIDATE,
-      cnic: "35201-9876543-1",
-      registrationDate: "2026-06-15T10:30:00Z"
-    }
-  ];
-
-  const exams: Exam[] = [
-    {
-      id: "exam-css-2026",
-      title: "CSS CSS-MPT (Preliminary Test) Mock Examination",
-      description: "Official pattern-based screening test for Central Superior Services (CSS) recruitment. Includes General Knowledge, English grammar, Pakistan Affairs, and Mental Ability.",
-      category: ExamCategory.PUBLIC_SERVICE,
-      duration: 30, // minutes (for demonstration)
-      totalQuestions: 10,
-      totalMarks: 100,
-      passingScore: 50,
-      negativeMarkingValue: 0.25,
-      status: "published",
-      difficulty: "Hard",
-      subjects: ["English Language", "General Knowledge", "Pakistan Affairs", "Aptitude"],
-      scheduledAt: "2026-07-10T10:00:00Z"
-    },
-    {
-      id: "exam-mdcat-2026",
-      title: "MDCAT Biology & Chemistry Mock Simulator",
-      description: "University Entry Test mock series for admissions to Medical & Dental Colleges. Strictly adheres to PMDC curriculum standards.",
-      category: ExamCategory.UNIVERSITY_ENTRY,
-      duration: 25,
-      totalQuestions: 8,
-      totalMarks: 80,
-      passingScore: 45,
-      negativeMarkingValue: 0,
-      status: "published",
-      difficulty: "Medium",
-      subjects: ["Biology", "Chemistry"],
-      scheduledAt: "2026-07-12T14:00:00Z"
-    },
-    {
-      id: "exam-govt-assistant",
-      title: "Federal Secretariat Assistant Recruitment Mock Exam",
-      description: "General recruitment test layout containing Basic Computer Literacy, Office Procedures, and Arithmetic Skills.",
-      category: ExamCategory.GOVERNMENT_JOB,
-      duration: 20,
-      totalQuestions: 6,
-      totalMarks: 60,
-      passingScore: 30,
-      negativeMarkingValue: 0.25,
-      status: "published",
-      difficulty: "Medium",
-      subjects: ["IT Fundamentals", "English Literature", "Arithmetic"],
-      scheduledAt: "2026-07-20T11:00:00Z"
-    },
-    ntsExam
-  ];
-
-  const questions: Question[] = [
-    // CSS-MPT questions
-    {
-      id: "q-css-1",
-      examId: "exam-css-2026",
-      type: QuestionType.SINGLE_CORRECT,
-      text: "Who was the first Prime Minister of Pakistan?",
-      options: ["Liaquat Ali Khan", "Muhammad Ali Jinnah", "Khawaja Nazimuddin", "Chaudhry Muhammad Ali"],
-      correctAnswer: "0", // 0-indexed index of options
-      explanation: "Liaquat Ali Khan was appointed as the first Prime Minister of Pakistan on August 15, 1947.",
-      subject: "Pakistan Affairs",
-      topic: "Post-Independence History",
-      difficulty: "Medium",
-      estimatedSolveTime: 30
-    },
-    {
-      id: "q-css-2",
-      examId: "exam-css-2026",
-      type: QuestionType.SINGLE_CORRECT,
-      text: "Identify the antonym of the word: 'METICULOUS'.",
-      options: ["Careful", "Careless", "Methodical", "Painstaking"],
-      correctAnswer: "1",
-      explanation: "'Meticulous' means showing great attention to detail; very careful and precise. The opposite is 'Careless'.",
-      subject: "English Language",
-      topic: "Antonyms & Synonyms",
-      difficulty: "Medium",
-      estimatedSolveTime: 25
-    },
-    {
-      id: "q-css-3",
-      examId: "exam-css-2026",
-      type: QuestionType.SINGLE_CORRECT,
-      text: "The largest lake in Pakistan is:",
-      options: ["Keenjhar Lake", "Manchar Lake", "Saif-ul-Muluk", "Hanna Lake"],
-      correctAnswer: "1",
-      explanation: "Manchar Lake is the largest natural freshwater lake in Pakistan and one of the largest in South Asia, located in Jamshoro District, Sindh.",
-      subject: "General Knowledge",
-      topic: "Geography",
-      difficulty: "Easy",
-      estimatedSolveTime: 20
-    },
-    {
-      id: "q-css-4",
-      examId: "exam-css-2026",
-      type: QuestionType.SINGLE_CORRECT,
-      text: "If 5 workers can build a wall in 12 days, how many days will it take 10 workers to build the same wall?",
-      options: ["24 days", "6 days", "8 days", "15 days"],
-      correctAnswer: "1",
-      explanation: "Using inverse proportion: Workers × Days = Constant. 5 × 12 = 60. Therefore, 10 × Days = 60 => Days = 6.",
-      subject: "Aptitude",
-      topic: "Work and Time",
-      difficulty: "Medium",
-      estimatedSolveTime: 45
-    },
-    {
-      id: "q-css-5",
-      examId: "exam-css-2026",
-      type: QuestionType.TRUE_FALSE,
-      text: "The state of Pakistan was established based on the 'Two-Nation Theory'.",
-      options: ["True", "False"],
-      correctAnswer: "0",
-      explanation: "The ideological foundation of Pakistan is the Two-Nation Theory, which asserts that Muslims and Hindus are two distinct nations.",
-      subject: "Pakistan Affairs",
-      topic: "Ideology",
-      difficulty: "Easy",
-      estimatedSolveTime: 15
-    },
-    {
-      id: "q-css-6",
-      examId: "exam-css-2026",
-      type: QuestionType.FILL_BLANK,
-      text: "Pakistan's highest peak is K2, which stands at an elevation of _______ meters.",
-      correctAnswer: "8611",
-      explanation: "K2 is the second-highest mountain in the world, standing at 8,611 meters (28,251 feet) above sea level.",
-      subject: "General Knowledge",
-      topic: "Geography",
-      difficulty: "Medium",
-      estimatedSolveTime: 30
-    },
-    {
-      id: "q-css-7",
-      examId: "exam-css-2026",
-      type: QuestionType.SHORT_ANSWER,
-      text: "Name the highest civil award of Pakistan.",
-      correctAnswer: "Nishan-e-Pakistan",
-      explanation: "Nishan-e-Pakistan is the highest civilian award conferred by the Government of Pakistan.",
-      subject: "General Knowledge",
-      topic: "National Honors",
-      difficulty: "Easy",
-      estimatedSolveTime: 20
-    },
-    {
-      id: "q-css-8",
-      examId: "exam-css-2026",
-      type: QuestionType.MULTIPLE_CORRECT,
-      text: "Which of the following rivers flow through Pakistan? (Select ALL correct answers)",
-      options: ["Indus River", "Ganges River", "Jhelum River", "Chenab River"],
-      correctAnswer: JSON.stringify(["0", "2", "3"]),
-      explanation: "Indus, Jhelum, and Chenab flow extensively through Pakistan, while the Ganges flows through India and Bangladesh.",
-      subject: "General Knowledge",
-      topic: "Geography",
-      difficulty: "Medium",
-      estimatedSolveTime: 40
-    },
-    {
-      id: "q-css-9",
-      examId: "exam-css-2026",
-      type: QuestionType.ESSAY,
-      text: "Discuss the socio-economic challenges of water scarcity in Pakistan and suggest three actionable remedies.",
-      correctAnswer: "",
-      explanation: "Grading is based on structured parameters like introduction of water issues, agricultural damage, storage options, and conservation techniques.",
-      subject: "Pakistan Affairs",
-      topic: "Current Challenges",
-      difficulty: "Hard",
-      estimatedSolveTime: 180
-    },
-    {
-      id: "q-css-10",
-      examId: "exam-css-2026",
-      type: QuestionType.CODING,
-      text: "Write a JavaScript function `isPrime(n)` that returns `true` if a number is prime, and `false` otherwise. Optimize for time complexity.",
-      correctAnswer: "function isPrime(n) { if (n <= 1) return false; if (n <= 3) return true; if (n % 2 === 0 || n % 3 === 0) return false; for (let i = 5; i * i <= n; i += 6) { if (n % i === 0 || n % (i + 2) === 0) return false; } return true; }",
-      explanation: "Standard optimized primality testing loops up to the square root of n, skipping multiples of 2 and 3.",
-      subject: "Aptitude",
-      topic: "Programming Skills",
-      difficulty: "Hard",
-      estimatedSolveTime: 150
-    },
-
-    // MDCAT questions
-    {
-      id: "q-md-1",
-      examId: "exam-mdcat-2026",
-      type: QuestionType.SINGLE_CORRECT,
-      text: "Which cell organelle is known as the powerhouse of the cell?",
-      options: ["Nucleus", "Mitochondria", "Ribosome", "Golgi Apparatus"],
-      correctAnswer: "1",
-      explanation: "Mitochondria are membrane-bound cell organelles that generate most of the chemical energy needed to power the cell's biochemical reactions.",
-      subject: "Biology",
-      topic: "Cell Structure",
-      difficulty: "Easy",
-      estimatedSolveTime: 20
-    },
-    {
-      id: "q-md-2",
-      examId: "exam-mdcat-2026",
-      type: QuestionType.SINGLE_CORRECT,
-      text: "What is the pH of a neutral aqueous solution at 25°C?",
-      options: ["5.0", "7.0", "9.0", "14.0"],
-      correctAnswer: "1",
-      explanation: "At 25°C, pure water has a neutral pH value of exactly 7.0.",
-      subject: "Chemistry",
-      topic: "Acids and Bases",
-      difficulty: "Easy",
-      estimatedSolveTime: 15
-    },
-    {
-      id: "q-md-3",
-      examId: "exam-mdcat-2026",
-      type: QuestionType.SINGLE_CORRECT,
-      text: "The main structural component of plant cell walls is:",
-      options: ["Chitin", "Glycogen", "Cellulose", "Peptidoglycan"],
-      correctAnswer: "2",
-      explanation: "Cellulose is an insoluble polysaccharide consisting of a linear chain of glucose units, forming the chief structural component of green plant cell walls.",
-      subject: "Biology",
-      topic: "Cell Wall",
-      difficulty: "Medium",
-      estimatedSolveTime: 20
-    },
-    {
-      id: "q-md-4",
-      examId: "exam-mdcat-2026",
-      type: QuestionType.TRUE_FALSE,
-      text: "Enzymes speed up chemical reactions by lowering the activation energy barrier.",
-      options: ["True", "False"],
-      correctAnswer: "0",
-      explanation: "By binding substrates, enzymes stabilize the transition state and lower the energy required to activate the reaction.",
-      subject: "Biology",
-      topic: "Enzymology",
-      difficulty: "Easy",
-      estimatedSolveTime: 15
-    },
-    ...ntsQuestions
-  ];
-
-  const notices: Notice[] = [];
-
-  const downloads: DownloadItem[] = [];
-
-  const auditLogs: AuditLog[] = [
-    {
-      id: "log-1",
-      userId: "admin-1",
-      userName: "Super Admin",
-      userRole: UserRole.SUPER_ADMIN,
-      action: "System Initialized",
-      timestamp: "2026-07-04T08:00:00Z",
-      ipAddress: "127.0.0.1",
-      browser: "Chrome 144.0",
-      device: "Desktop / Linux",
-      details: "Seed database generated with official Federal mockup models."
-    }
-  ];
-
-  return {
-    users,
-    exams,
-    questions,
-    examAttempts: [],
-    certificates: [],
-    notices,
-    downloads,
-    auditLogs,
-    notifications: [],
-    settings: defaultSettings
-  };
-};
-
-// Database Access Methods
-const readDb = (): LocalDatabase => {
-  try {
-    if (!fs.existsSync(DB_FILE)) {
-      const data = initialSeedData();
-      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-      return data;
-    }
-    const raw = fs.readFileSync(DB_FILE, "utf-8");
-    const data = JSON.parse(raw);
-    
-    // Auto-migrate: check if nts-joa exam is present in the database file
-    if (data && data.exams && !data.exams.some((e: any) => e.id === "exam-nts-joa")) {
-      data.exams.push(ntsExam);
-      if (!data.questions) {
-        data.questions = [];
-      }
-      data.questions.push(...ntsQuestions);
-      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-    }
-    
-    return data;
-  } catch (err) {
-    console.error("Error reading db file, falling back to seed", err);
-    return initialSeedData();
-  }
-};
-
-const writeDb = (data: LocalDatabase) => {
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("Failed to write to database file", err);
-  }
-};
-
-// Initialize DB on Startup
-readDb();
-
 // Helper to log audit actions
-const logAudit = (userId: string, action: string, details: string, req: Request) => {
-  const db = readDb();
-  const user = db.users.find(u => u.id === userId);
-  const newLog: AuditLog = {
-    id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    userId: userId || "anonymous",
-    userName: user ? user.name : "Anonymous",
-    userRole: user ? user.role : UserRole.CANDIDATE,
-    action,
-    timestamp: new Date().toISOString(),
-    ipAddress: (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "127.0.0.1",
-    browser: req.headers["user-agent"] || "Unknown Browser",
-    device: req.headers["sec-ch-ua-platform"] ? `${req.headers["sec-ch-ua-platform"]}` : "Unknown Device",
-    details
-  };
-  db.auditLogs.unshift(newLog);
-  writeDb(db);
+const logAudit = async (userId: string, action: string, details: string, req: Request) => {
+  try {
+    const user = userId ? (await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1))[0] : null;
+    await db.insert(schema.auditLogs).values({
+      id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      userId: userId || "anonymous",
+      userName: user ? user.name : "Anonymous",
+      userRole: user ? user.role : UserRole.CANDIDATE,
+      action,
+      timestamp: new Date().toISOString(),
+      ipAddress: (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "127.0.0.1",
+      browser: req.headers["user-agent"] || "Unknown Browser",
+      device: req.headers["sec-ch-ua-platform"] ? `${req.headers["sec-ch-ua-platform"]}` : "Unknown Device",
+      details
+    });
+  } catch (err) {
+    console.error("Failed to log audit action", err);
+  }
 };
 
 // ==========================================
@@ -417,142 +80,186 @@ const logAudit = (userId: string, action: string, details: string, req: Request)
 // ==========================================
 
 // Auth Endpoint: Login
-app.post("/api/auth/login", (req: Request, res: Response) => {
-  const { email, password, requestedRole } = req.body;
+app.post("/api/auth/login", async (req: Request, res: Response) => {
+  const { email, password, requestedRole, name, cnic } = req.body;
   if (!email) {
     return res.status(400).json({ error: "Email is required." });
   }
 
-  const db = readDb();
-  // Find user by email
-  let user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+  try {
+    const systemSettings = (await db.select().from(schema.settings).where(eq(schema.settings.id, "system_config")).limit(1))[0] || defaultSettings;
 
-  // Support OTP simulation: if user doesn't exist, allow self-registration or login
-  if (!user) {
-    if (db.settings.allowSelfRegistration) {
-      const newRole = requestedRole === "ADMIN" ? UserRole.ADMIN : UserRole.CANDIDATE;
-      user = {
-        id: `user-${Date.now()}`,
-        name: email.split("@")[0].toUpperCase().replace(".", " "),
-        email: email.toLowerCase(),
-        role: newRole,
-        cnic: `35201-${Math.floor(Math.random() * 10000000)}-1`,
-        registrationDate: new Date().toISOString()
-      };
-      db.users.push(user);
-      writeDb(db);
+    // Find user by email
+    let user = (await db.select().from(schema.users).where(eq(schema.users.email, email.toLowerCase())).limit(1))[0];
+
+    // Support OTP simulation / self-registration
+    if (!user) {
+      if (systemSettings.allowSelfRegistration) {
+        const newRole = requestedRole === "SUPER_ADMIN" ? UserRole.SUPER_ADMIN : (requestedRole === "ADMIN" ? UserRole.ADMIN : UserRole.CANDIDATE);
+        const defaultPassword = password || "123456";
+        const passwordHash = bcryptjs.hashSync(defaultPassword, 10);
+        
+        user = {
+          id: `user-${Date.now()}`,
+          name: name || email.split("@")[0].toUpperCase().replace(".", " "),
+          email: email.toLowerCase(),
+          role: newRole,
+          cnic: cnic || `35201-${Math.floor(Math.random() * 10000000)}-1`,
+          registrationDate: new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
+          ipAddress: (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "127.0.0.1",
+          browser: req.headers["user-agent"] || "Generic Agent",
+          device: "Web Application Client",
+          passwordHash,
+        };
+        await db.insert(schema.users).values({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          cnic: user.cnic || null,
+          registrationDate: user.registrationDate,
+          lastLogin: user.lastLogin,
+          ipAddress: user.ipAddress,
+          browser: user.browser,
+          device: user.device,
+          passwordHash: user.passwordHash,
+        });
+      } else {
+        return res.status(403).json({ error: "Registration is restricted by policy." });
+      }
     } else {
-      return res.status(403).json({ error: "Registration is restricted by policy." });
+      // User exists, check password if provided
+      if (password) {
+        if (user.passwordHash && !bcryptjs.compareSync(password, user.passwordHash)) {
+          return res.status(401).json({ error: "Incorrect password. Verification failed." });
+        }
+      }
+      
+      user.lastLogin = new Date().toISOString();
+      user.ipAddress = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "127.0.0.1";
+      user.browser = req.headers["user-agent"] || "Generic Agent";
+      user.device = "Web Application Client";
+      
+      await db.update(schema.users).set({
+        lastLogin: user.lastLogin,
+        ipAddress: user.ipAddress,
+        browser: user.browser,
+        device: user.device
+      }).where(eq(schema.users.id, user.id));
     }
+
+    await logAudit(user.id, "User Login", `Authenticated via OTP session key. Role: ${user.role}`, req);
+
+    res.json({ success: true, user });
+  } catch (err: any) {
+    console.error("Login endpoint error:", err);
+    res.status(500).json({ error: "Authentication transaction failed." });
   }
-
-  // Record Last Login Info
-  user.lastLogin = new Date().toISOString();
-  user.ipAddress = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "127.0.0.1";
-  user.browser = req.headers["user-agent"] || "Generic Agent";
-  user.device = "Web Application Client";
-  writeDb(db);
-
-  logAudit(user.id, "User Login", `Authenticated via OTP session key. Role: ${user.role}`, req);
-
-  res.json({ success: true, user });
 });
 
 // Notice Board search & fetch
-app.get("/api/notices", (req: Request, res: Response) => {
+app.get("/api/notices", async (req: Request, res: Response) => {
   const { search, category } = req.query;
-  const db = readDb();
-  let list = db.notices;
+  try {
+    let list = await db.select().from(schema.notices);
 
-  if (category && category !== "All") {
-    list = list.filter(n => n.category.toLowerCase() === String(category).toLowerCase());
-  }
-  if (search) {
-    const q = String(search).toLowerCase();
-    list = list.filter(n => n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q));
-  }
+    if (category && category !== "All") {
+      list = list.filter(n => n.category.toLowerCase() === String(category).toLowerCase());
+    }
+    if (search) {
+      const q = String(search).toLowerCase();
+      list = list.filter(n => n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q));
+    }
 
-  res.json(list);
+    res.json(list);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch notices." });
+  }
 });
 
 // Downloads Center search & fetch
-app.get("/api/downloads", (req: Request, res: Response) => {
+app.get("/api/downloads", async (req: Request, res: Response) => {
   const { search, category } = req.query;
-  const db = readDb();
-  let list = db.downloads;
+  try {
+    let list = await db.select().from(schema.downloads);
 
-  if (category && category !== "All") {
-    list = list.filter(d => d.category.toLowerCase() === String(category).toLowerCase());
-  }
-  if (search) {
-    const q = String(search).toLowerCase();
-    list = list.filter(d => d.title.toLowerCase().includes(q) || d.description.toLowerCase().includes(q));
-  }
+    if (category && category !== "All") {
+      list = list.filter(d => d.category.toLowerCase() === String(category).toLowerCase());
+    }
+    if (search) {
+      const q = String(search).toLowerCase();
+      list = list.filter(d => d.title.toLowerCase().includes(q) || d.description.toLowerCase().includes(q));
+    }
 
-  res.json(list);
+    res.json(list);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch downloads." });
+  }
 });
 
 // Public Stats for Landing Page Ribbon
-app.get("/api/public-stats", (req: Request, res: Response) => {
-  const db = readDb();
-  res.json({
-    totalUsers: db.users.length,
-    totalExams: db.exams.length,
-    totalCertificates: db.certificates.length,
-    uptime: "100%"
-  });
+app.get("/api/public-stats", async (req: Request, res: Response) => {
+  try {
+    const usersCount = (await db.select().from(schema.users)).length;
+    const examsCount = (await db.select().from(schema.exams)).length;
+    const certsCount = (await db.select().from(schema.certificates)).length;
+    res.json({
+      totalUsers: usersCount,
+      totalExams: examsCount,
+      totalCertificates: certsCount,
+      uptime: "100%"
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch stats." });
+  }
 });
 
 // Browse exams
-app.get("/api/exams", (req: Request, res: Response) => {
+app.get("/api/exams", async (req: Request, res: Response) => {
   const { search, category } = req.query;
-  const db = readDb();
-  let list = db.exams.filter(e => e.status === "published");
+  try {
+    let list = await db.select().from(schema.exams).where(eq(schema.exams.status, "published"));
 
-  if (category && category !== "All") {
-    list = list.filter(e => e.category === category);
-  }
-  if (search) {
-    const q = String(search).toLowerCase();
-    list = list.filter(e => e.title.toLowerCase().includes(q) || e.description.toLowerCase().includes(q));
-  }
+    if (category && category !== "All") {
+      list = list.filter(e => e.category === category);
+    }
+    if (search) {
+      const q = String(search).toLowerCase();
+      list = list.filter(e => e.title.toLowerCase().includes(q) || e.description.toLowerCase().includes(q));
+    }
 
-  res.json(list);
+    res.json(list);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch exams." });
+  }
 });
 
 // Get Exam along with scrambled questions (Anti-Cheating layout)
-app.get("/api/exams/:id", (req: Request, res: Response) => {
+app.get("/api/exams/:id", async (req: Request, res: Response) => {
   const { id } = req.params;
   const { randomize } = req.query;
-  const db = readDb();
 
-  const exam = db.exams.find(e => e.id === id);
-  if (!exam) {
-    return res.status(404).json({ error: "Mock exam not found." });
+  try {
+    const exam = (await db.select().from(schema.exams).where(eq(schema.exams.id, id)).limit(1))[0];
+    if (!exam) {
+      return res.status(404).json({ error: "Mock exam not found." });
+    }
+
+    let examQuestions = await db.select().from(schema.questions).where(eq(schema.questions.examId, id));
+
+    if (randomize === "true") {
+      examQuestions = [...examQuestions].sort(() => Math.random() - 0.5);
+    }
+
+    res.json({ exam, questions: examQuestions });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch exam details." });
   }
-
-  let examQuestions = db.questions.filter(q => q.examId === id);
-
-  // Question/Option Randomization for Integrity checks
-  if (randomize === "true") {
-    examQuestions = [...examQuestions].sort(() => Math.random() - 0.5);
-    examQuestions = examQuestions.map(q => {
-      if (q.options && q.type === QuestionType.SINGLE_CORRECT) {
-        // Shuffle MCQ options while maintaining logic can be tricky if we don't map indices.
-        // Let's preserve original indices by mapping options with tracking, or keeping original options
-        // but scrambling them and mapping correctly. For simplicity, we preserve MCQ indices in database
-        // but scramble for high stakes. To keep answers valid in our grading, let's keep MCQs ordered but
-        // randomize questions index.
-      }
-      return q;
-    });
-  }
-
-  res.json({ exam, questions: examQuestions });
 });
 
 // Create exam attempt
-app.post("/api/exams/:id/start", (req: Request, res: Response) => {
+app.post("/api/exams/:id/start", async (req: Request, res: Response) => {
   const { id } = req.params;
   const { userId } = req.body;
 
@@ -560,325 +267,431 @@ app.post("/api/exams/:id/start", (req: Request, res: Response) => {
     return res.status(400).json({ error: "User ID required to initialize attempt." });
   }
 
-  const db = readDb();
-  const exam = db.exams.find(e => e.id === id);
-  if (!exam) {
-    return res.status(404).json({ error: "Exam not found." });
+  try {
+    const exam = (await db.select().from(schema.exams).where(eq(schema.exams.id, id)).limit(1))[0];
+    if (!exam) {
+      return res.status(404).json({ error: "Exam not found." });
+    }
+
+    const attemptId = `attempt-${Date.now()}`;
+    const newAttempt = {
+      id: attemptId,
+      userId,
+      examId: id,
+      startedAt: new Date().toISOString(),
+      answers: {},
+      markedForReview: {},
+      status: "ongoing",
+      warningCount: 0
+    };
+
+    await db.insert(schema.examAttempts).values(newAttempt);
+    await logAudit(userId, "Started Exam", `Began attempt ${attemptId} for exam: ${exam.title}`, req);
+
+    res.json(newAttempt);
+  } catch (error) {
+    console.error("Start exam error:", error);
+    res.status(500).json({ error: "Failed to start exam attempt." });
   }
-
-  // Create standard Attempt record
-  const attemptId = `attempt-${Date.now()}`;
-  const newAttempt: ExamAttempt = {
-    id: attemptId,
-    userId,
-    examId: id,
-    startedAt: new Date().toISOString(),
-    answers: {},
-    markedForReview: {},
-    status: "ongoing",
-    warningCount: 0
-  };
-
-  db.examAttempts.push(newAttempt);
-  writeDb(db);
-
-  logAudit(userId, "Started Exam", `Began attempt ${attemptId} for exam: ${exam.title}`, req);
-
-  res.json(newAttempt);
 });
 
 // Sync answers & warning log in real-time (Auto-Save, connection loss recovery)
-app.post("/api/attempts/:attemptId/save", (req: Request, res: Response) => {
+app.post("/api/attempts/:attemptId/save", async (req: Request, res: Response) => {
   const { attemptId } = req.params;
   const { answers, markedForReview, warningCount, userId } = req.body;
 
-  const db = readDb();
-  const attempt = db.examAttempts.find(a => a.id === attemptId);
-  if (!attempt) {
-    return res.status(404).json({ error: "Attempt session not found." });
+  try {
+    const attempt = (await db.select().from(schema.examAttempts).where(eq(schema.examAttempts.id, attemptId)).limit(1))[0];
+    if (!attempt) {
+      return res.status(404).json({ error: "Attempt session not found." });
+    }
+
+    if (attempt.status === "submitted") {
+      return res.status(400).json({ error: "Cannot sync. Exam already submitted." });
+    }
+
+    const updatedAnswers = answers || attempt.answers;
+    const updatedMarkedForReview = markedForReview || attempt.markedForReview;
+    const updatedWarningCount = warningCount !== undefined ? warningCount : attempt.warningCount;
+
+    await db.update(schema.examAttempts)
+      .set({
+        answers: updatedAnswers,
+        markedForReview: updatedMarkedForReview,
+        warningCount: updatedWarningCount
+      })
+      .where(eq(schema.examAttempts.id, attemptId));
+
+    if (warningCount !== undefined && warningCount > attempt.warningCount) {
+      await logAudit(userId || attempt.userId, "Integrity Violation Warning", `Tab switch or blur event detected. Warning count updated to ${warningCount}.`, req);
+    }
+
+    res.json({ 
+      success: true, 
+      attempt: { 
+        ...attempt, 
+        answers: updatedAnswers, 
+        markedForReview: updatedMarkedForReview, 
+        warningCount: updatedWarningCount 
+      } 
+    });
+  } catch (error) {
+    console.error("Save attempt error:", error);
+    res.status(500).json({ error: "Failed to save attempt state." });
   }
-
-  if (attempt.status === "submitted") {
-    return res.status(400).json({ error: "Cannot sync. Exam already submitted." });
-  }
-
-  // Update real-time state
-  attempt.answers = answers || attempt.answers;
-  attempt.markedForReview = markedForReview || attempt.markedForReview;
-  attempt.warningCount = warningCount !== undefined ? warningCount : attempt.warningCount;
-
-  writeDb(db);
-
-  // Log strict violation warnings
-  if (warningCount > attempt.warningCount) {
-    logAudit(userId || attempt.userId, "Integrity Violation Warning", `Tab switch or blur event detected. Warning count updated to ${warningCount}.`, req);
-  }
-
-  res.json({ success: true, attempt });
 });
 
 // Submit Exam (Auto-submit on timer or violations, auto-grade scoring)
-app.post("/api/attempts/:attemptId/submit", (req: Request, res: Response) => {
+app.post("/api/attempts/:attemptId/submit", async (req: Request, res: Response) => {
   const { attemptId } = req.params;
-  const db = readDb();
 
-  const attempt = db.examAttempts.find(a => a.id === attemptId);
-  if (!attempt) {
-    return res.status(404).json({ error: "Exam attempt session not found." });
-  }
-
-  if (attempt.status === "submitted") {
-    return res.json(attempt); // Already computed
-  }
-
-  const exam = db.exams.find(e => e.id === attempt.examId);
-  if (!exam) {
-    return res.status(404).json({ error: "Related exam schema missing." });
-  }
-
-  const questions = db.questions.filter(q => q.examId === exam.id);
-
-  // Scoring engine
-  let score = 0;
-  let correctCount = 0;
-  let incorrectCount = 0;
-  let skippedCount = 0;
-  let negativeMarksApplied = 0;
-
-  questions.forEach(q => {
-    const candidateAnswer = attempt.answers[q.id];
-
-    if (candidateAnswer === undefined || candidateAnswer === "") {
-      skippedCount++;
-    } else {
-      let isCorrect = false;
-
-      if (q.type === QuestionType.SINGLE_CORRECT || q.type === QuestionType.TRUE_FALSE) {
-        isCorrect = String(candidateAnswer) === String(q.correctAnswer);
-      } else if (q.type === QuestionType.MULTIPLE_CORRECT) {
-        try {
-          const correctSet: string[] = JSON.parse(q.correctAnswer as string);
-          const candidateSet: string[] = JSON.parse(candidateAnswer);
-          isCorrect = correctSet.length === candidateSet.length && correctSet.every(v => candidateSet.includes(v));
-        } catch {
-          isCorrect = String(candidateAnswer) === String(q.correctAnswer);
-        }
-      } else if (q.type === QuestionType.FILL_BLANK || q.type === QuestionType.SHORT_ANSWER) {
-        isCorrect = String(candidateAnswer).trim().toLowerCase() === String(q.correctAnswer).trim().toLowerCase();
-      } else {
-        // Essay/Coding default to AI scoring mockup or automatic match
-        isCorrect = candidateAnswer.length > 10; // Simple length validation for essays/coding
-      }
-
-      if (isCorrect) {
-        correctCount++;
-        score += 10; // 10 marks per question
-      } else {
-        incorrectCount++;
-        if (exam.negativeMarkingValue > 0) {
-          negativeMarksApplied += exam.negativeMarkingValue * 10;
-        }
-      }
+  try {
+    const attempt = (await db.select().from(schema.examAttempts).where(eq(schema.examAttempts.id, attemptId)).limit(1))[0];
+    if (!attempt) {
+      return res.status(404).json({ error: "Exam attempt session not found." });
     }
-  });
 
-  const finalScore = Math.max(0, score - negativeMarksApplied);
-  const percentage = (finalScore / (questions.length * 10)) * 100;
+    if (attempt.status === "submitted") {
+      return res.json(attempt);
+    }
 
-  attempt.status = "submitted";
-  attempt.submittedAt = new Date().toISOString();
-  attempt.score = finalScore;
-  attempt.correctCount = correctCount;
-  attempt.incorrectCount = incorrectCount;
-  attempt.skippedCount = skippedCount;
-  attempt.negativeMarksApplied = negativeMarksApplied;
-  attempt.timeSpentSeconds = Math.round((Date.now() - new Date(attempt.startedAt).getTime()) / 1000);
+    const exam = (await db.select().from(schema.exams).where(eq(schema.exams.id, attempt.examId)).limit(1))[0];
+    if (!exam) {
+      return res.status(404).json({ error: "Related exam schema missing." });
+    }
 
-  // Generate Rank and Percentile compared to past candidates
-  const peerAttempts = db.examAttempts.filter(a => a.examId === exam.id && a.status === "submitted" && a.id !== attemptId);
-  const allScores = [...peerAttempts.map(p => p.score || 0), finalScore].sort((a, b) => b - a);
-  const rank = allScores.indexOf(finalScore) + 1;
-  const andBelow = allScores.filter(s => s <= finalScore).length;
-  const percentile = Math.round((andBelow / allScores.length) * 100);
+    const questions = await db.select().from(schema.questions).where(eq(schema.questions.examId, exam.id));
 
-  attempt.rank = rank;
-  attempt.percentile = percentile;
+    let score = 0;
+    let correctCount = 0;
+    let incorrectCount = 0;
+    let skippedCount = 0;
+    let negativeMarksApplied = 0;
 
-  // If candidate passed, automatically issue unique Verification Certificate
-  if (finalScore >= exam.passingScore) {
-    const certId = `cert-${Date.now()}`;
-    const certNumber = `NMTS-${exam.id.toUpperCase().replace("EXAM-", "")}-${Math.floor(Math.random() * 89999 + 10000)}`;
-    const user = db.users.find(u => u.id === attempt.userId);
+    questions.forEach(q => {
+      const candidateAnswer = (attempt.answers as any)[q.id];
 
-    const newCert: Certificate = {
-      id: certId,
-      attemptId: attempt.id,
-      userId: attempt.userId,
-      candidateName: user ? user.name : "Ali Ahmed Khan",
-      cnic: user?.cnic,
-      examId: exam.id,
-      examTitle: exam.title,
-      score: finalScore,
-      totalMarks: questions.length * 10,
-      percentile: percentile,
-      certificateNumber: certNumber,
-      issuedAt: new Date().toISOString(),
-      qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://nmts.gov.pk/verify/${certNumber}`
-    };
+      if (candidateAnswer === undefined || candidateAnswer === "") {
+        skippedCount++;
+      } else {
+        let isCorrect = false;
 
-    db.certificates.push(newCert);
+        if (q.type === QuestionType.SINGLE_CORRECT || q.type === QuestionType.TRUE_FALSE) {
+          isCorrect = String(candidateAnswer) === String(q.correctAnswer);
+        } else if (q.type === QuestionType.MULTIPLE_CORRECT) {
+          try {
+            const correctSet: string[] = typeof q.correctAnswer === "string" ? JSON.parse(q.correctAnswer) : q.correctAnswer as string[];
+            const candidateSet: string[] = typeof candidateAnswer === "string" ? JSON.parse(candidateAnswer) : candidateAnswer as string[];
+            isCorrect = correctSet.length === candidateSet.length && correctSet.every(v => candidateSet.includes(v));
+          } catch {
+            isCorrect = String(candidateAnswer) === String(q.correctAnswer);
+          }
+        } else if (q.type === QuestionType.FILL_BLANK || q.type === QuestionType.SHORT_ANSWER) {
+          isCorrect = String(candidateAnswer).trim().toLowerCase() === String(q.correctAnswer).trim().toLowerCase();
+        } else {
+          isCorrect = candidateAnswer.length > 10;
+        }
 
-    // In-app success alert
-    db.notifications.push({
-      id: `notif-${Date.now()}`,
-      userId: attempt.userId,
-      title: "Exam Certificate Conferred!",
-      message: `Congratulations! You passed the ${exam.title} and earned certificate ${certNumber}.`,
-      type: "success",
-      read: false,
-      createdAt: new Date().toISOString()
+        if (isCorrect) {
+          correctCount++;
+          score += 10;
+        } else {
+          incorrectCount++;
+          if (exam.negativeMarkingValue > 0) {
+            negativeMarksApplied += exam.negativeMarkingValue * 10;
+          }
+        }
+      }
     });
+
+    const finalScore = Math.max(0, score - negativeMarksApplied);
+
+    // Get peer attempts
+    const peerAttempts = await db.select().from(schema.examAttempts)
+      .where(and(eq(schema.examAttempts.examId, exam.id), eq(schema.examAttempts.status, "submitted")));
+    const otherScores = peerAttempts.filter(a => a.id !== attemptId).map(p => p.score || 0);
+    const allScores = [...otherScores, finalScore].sort((a, b) => b - a);
+    const rank = allScores.indexOf(finalScore) + 1;
+    const andBelow = allScores.filter(s => s <= finalScore).length;
+    const percentile = Math.round((andBelow / allScores.length) * 100);
+
+    const submittedAt = new Date().toISOString();
+    const timeSpentSeconds = Math.round((Date.now() - new Date(attempt.startedAt).getTime()) / 1000);
+
+    await db.update(schema.examAttempts)
+      .set({
+        status: "submitted",
+        submittedAt,
+        score: finalScore,
+        correctCount,
+        incorrectCount,
+        skippedCount,
+        negativeMarksApplied,
+        timeSpentSeconds,
+        rank,
+        percentile
+      })
+      .where(eq(schema.examAttempts.id, attemptId));
+
+    if (finalScore >= exam.passingScore) {
+      const certId = `cert-${Date.now()}`;
+      const certNumber = `NMTS-${exam.id.toUpperCase().replace("EXAM-", "")}-${Math.floor(Math.random() * 89999 + 10000)}`;
+      const user = (await db.select().from(schema.users).where(eq(schema.users.id, attempt.userId)).limit(1))[0];
+
+      await db.insert(schema.certificates).values({
+        id: certId,
+        attemptId: attempt.id,
+        userId: attempt.userId,
+        candidateName: user ? user.name : "Ali Ahmed Khan",
+        cnic: user?.cnic || null,
+        examId: exam.id,
+        examTitle: exam.title,
+        score: finalScore,
+        totalMarks: questions.length * 10,
+        percentile: percentile,
+        certificateNumber: certNumber,
+        issuedAt: new Date().toISOString(),
+        qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://nmts.gov.pk/verify/${certNumber}`
+      });
+
+      await db.insert(schema.notifications).values({
+        id: `notif-${Date.now()}`,
+        userId: attempt.userId,
+        title: "Exam Certificate Conferred!",
+        message: `Congratulations! You passed the ${exam.title} and earned certificate ${certNumber}.`,
+        type: "success",
+        read: false,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    await logAudit(attempt.userId, "Submitted Exam", `Completed mock testing session for ${exam.title}. Score: ${finalScore}/${questions.length * 10}`, req);
+
+    const finalAttempt = (await db.select().from(schema.examAttempts).where(eq(schema.examAttempts.id, attemptId)).limit(1))[0];
+    res.json(finalAttempt);
+  } catch (error) {
+    console.error("Submit exam error:", error);
+    res.status(500).json({ error: "Failed to submit exam attempt." });
   }
-
-  writeDb(db);
-  logAudit(attempt.userId, "Submitted Exam", `Completed mock testing session for ${exam.title}. Score: ${finalScore}/${questions.length * 10}`, req);
-
-  res.json(attempt);
 });
 
 // Get Candidate Attempt Result score analysis
-app.get("/api/attempts/:attemptId/result", (req: Request, res: Response) => {
+app.get("/api/attempts/:attemptId/result", async (req: Request, res: Response) => {
   const { attemptId } = req.params;
-  const db = readDb();
 
-  const attempt = db.examAttempts.find(a => a.id === attemptId);
-  if (!attempt) {
-    return res.status(404).json({ error: "Scorecard record not found." });
+  try {
+    const attempt = (await db.select().from(schema.examAttempts).where(eq(schema.examAttempts.id, attemptId)).limit(1))[0];
+    if (!attempt) {
+      return res.status(404).json({ error: "Scorecard record not found." });
+    }
+
+    const exam = (await db.select().from(schema.exams).where(eq(schema.exams.id, attempt.examId)).limit(1))[0];
+    const cert = (await db.select().from(schema.certificates).where(eq(schema.certificates.attemptId, attemptId)).limit(1))[0] || null;
+    const questions = await db.select().from(schema.questions).where(eq(schema.questions.examId, attempt.examId));
+
+    res.json({
+      attempt,
+      exam,
+      certificate: cert,
+      questions
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch result details." });
   }
-
-  const exam = db.exams.find(e => e.id === attempt.examId);
-  const cert = db.certificates.find(c => c.attemptId === attemptId);
-  const questions = db.questions.filter(q => q.examId === attempt.examId);
-
-  res.json({
-    attempt,
-    exam,
-    certificate: cert,
-    questions
-  });
 });
 
 // Profile stats
-app.get("/api/profile/:userId", (req: Request, res: Response) => {
+app.get("/api/profile/:userId", async (req: Request, res: Response) => {
   const { userId } = req.params;
-  const db = readDb();
 
-  const user = db.users.find(u => u.id === userId);
-  if (!user) {
-    return res.status(404).json({ error: "User profile missing." });
+  try {
+    const user = (await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1))[0];
+    if (!user) {
+      return res.status(404).json({ error: "User profile missing." });
+    }
+
+    const attempts = await db.select().from(schema.examAttempts).where(eq(schema.examAttempts.userId, userId));
+    const certificates = await db.select().from(schema.certificates).where(eq(schema.certificates.userId, userId));
+    const notifications = await db.select().from(schema.notifications).where(eq(schema.notifications.userId, userId));
+
+    res.json({
+      user,
+      attempts,
+      certificates,
+      notifications
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch profile stats." });
   }
-
-  const attempts = db.examAttempts.filter(a => a.userId === userId);
-  const certificates = db.certificates.filter(c => c.userId === userId);
-  const notifications = db.notifications.filter(n => n.userId === userId);
-
-  res.json({
-    user,
-    attempts,
-    certificates,
-    notifications
-  });
 });
 
 // Online Certificate Verification
-app.get("/api/certificates/verify/:certNo", (req: Request, res: Response) => {
+app.get("/api/certificates/verify/:certNo", async (req: Request, res: Response) => {
   const { certNo } = req.params;
-  const db = readDb();
 
-  const cert = db.certificates.find(c => c.certificateNumber.toLowerCase() === certNo.toLowerCase());
-  if (!cert) {
-    return res.status(404).json({ error: "Certificate verification failed. Record not authentic." });
+  try {
+    const cert = (await db.select().from(schema.certificates).where(eq(schema.certificates.certificateNumber, certNo)).limit(1))[0];
+    if (!cert) {
+      return res.status(404).json({ error: "Certificate verification failed. Record not authentic." });
+    }
+
+    const user = (await db.select().from(schema.users).where(eq(schema.users.id, cert.userId)).limit(1))[0];
+    res.json({
+      verified: true,
+      certificate: cert,
+      user
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to verify certificate." });
   }
-
-  const user = db.users.find(u => u.id === cert.userId);
-  res.json({
-    verified: true,
-    certificate: cert,
-    user
-  });
 });
 
 // ==========================================
 // ADMIN DASHBOARD & ANALYTICS APIs
 // ==========================================
 
-app.get("/api/admin/analytics", (req: Request, res: Response) => {
-  const db = readDb();
+app.get("/api/admin/analytics", async (req: Request, res: Response) => {
+  try {
+    const totalUsers = (await db.select().from(schema.users)).length;
+    const totalExams = (await db.select().from(schema.exams)).length;
+    const examAttempts = await db.select().from(schema.examAttempts);
+    const completedAttempts = examAttempts.filter(a => a.status === "submitted");
+    const totalAttemptsCount = examAttempts.length;
 
-  const totalUsers = db.users.length;
-  const totalExams = db.exams.length;
-  const completedAttempts = db.examAttempts.filter(a => a.status === "submitted");
-  const totalAttemptsCount = db.examAttempts.length;
+    let averageScore = 0;
+    let passCount = 0;
+    if (completedAttempts.length > 0) {
+      const sum = completedAttempts.reduce((acc, curr) => acc + (curr.score || 0), 0);
+      averageScore = parseFloat((sum / completedAttempts.length).toFixed(1));
 
-  let averageScore = 0;
-  let passCount = 0;
-  if (completedAttempts.length > 0) {
-    const sum = completedAttempts.reduce((acc, curr) => acc + (curr.score || 0), 0);
-    averageScore = parseFloat((sum / completedAttempts.length).toFixed(1));
+      const examsList = await db.select().from(schema.exams);
+      completedAttempts.forEach(a => {
+        const exam = examsList.find(e => e.id === a.examId);
+        if (exam && (a.score || 0) >= exam.passingScore) {
+          passCount++;
+        }
+      });
+    }
 
-    completedAttempts.forEach(a => {
-      const exam = db.exams.find(e => e.id === a.examId);
-      if (exam && (a.score || 0) >= exam.passingScore) {
-        passCount++;
-      }
+    const passRate = completedAttempts.length > 0 
+      ? parseFloat(((passCount / completedAttempts.length) * 100).toFixed(1)) 
+      : 0;
+
+    const allQuestions = await db.select().from(schema.questions);
+    const difficultyCounts = allQuestions.reduce((acc: Record<string, number>, q) => {
+      acc[q.difficulty] = (acc[q.difficulty] || 0) + 1;
+      return acc;
+    }, {});
+
+    const recentLogs = await db.select().from(schema.auditLogs).orderBy(desc(schema.auditLogs.timestamp)).limit(8);
+    const systemSettings = (await db.select().from(schema.settings).where(eq(schema.settings.id, "system_config")).limit(1))[0] || defaultSettings;
+
+    res.json({
+      totalUsers,
+      totalExams,
+      totalAttemptsCount,
+      completedAttemptsCount: completedAttempts.length,
+      averageScore,
+      passRate,
+      difficultyCounts,
+      recentLogs,
+      settings: systemSettings
     });
+  } catch (error) {
+    console.error("Analytics error:", error);
+    res.status(500).json({ error: "Failed to load analytics." });
   }
-
-  const passRate = completedAttempts.length > 0 
-    ? parseFloat(((passCount / completedAttempts.length) * 100).toFixed(1)) 
-    : 0;
-
-  // Map Category difficulty stats
-  const difficultyCounts = db.questions.reduce((acc: Record<string, number>, q) => {
-    acc[q.difficulty] = (acc[q.difficulty] || 0) + 1;
-    return acc;
-  }, {});
-
-  res.json({
-    totalUsers,
-    totalExams,
-    totalAttemptsCount,
-    completedAttemptsCount: completedAttempts.length,
-    averageScore,
-    passRate,
-    difficultyCounts,
-    recentLogs: db.auditLogs.slice(0, 8),
-    settings: db.settings
-  });
 });
 
-app.get("/api/admin/logs", (req: Request, res: Response) => {
-  const db = readDb();
-  res.json(db.auditLogs);
+app.get("/api/admin/logs", async (req: Request, res: Response) => {
+  try {
+    const logs = await db.select().from(schema.auditLogs).orderBy(desc(schema.auditLogs.timestamp));
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch logs." });
+  }
 });
 
-app.get("/api/settings", (req: Request, res: Response) => {
-  const db = readDb();
-  res.json(db.settings || defaultSettings);
+app.get("/api/settings", async (req: Request, res: Response) => {
+  try {
+    const config = (await db.select().from(schema.settings).where(eq(schema.settings.id, "system_config")).limit(1))[0];
+    res.json(config || defaultSettings);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch settings." });
+  }
 });
 
-app.post("/api/admin/settings", (req: Request, res: Response) => {
-  const db = readDb();
-  db.settings = { ...db.settings, ...req.body };
-  writeDb(db);
-  res.json(db.settings);
+app.post("/api/admin/settings", async (req: Request, res: Response) => {
+  try {
+    await db.insert(schema.settings)
+      .values({
+        id: "system_config",
+        siteName: req.body.siteName,
+        maintenanceMode: !!req.body.maintenanceMode,
+        allowSelfRegistration: !!req.body.allowSelfRegistration,
+        antiCheatingStrictness: req.body.antiCheatingStrictness,
+        autoSubmitOnViolations: !!req.body.autoSubmitOnViolations,
+        maxViolationsAllowed: req.body.maxViolationsAllowed,
+        allowAIGeneration: !!req.body.allowAIGeneration,
+        contactEmail: req.body.contactEmail || null,
+        contactPhone: req.body.contactPhone || null,
+        contactAddress: req.body.contactAddress || null,
+        footerText: req.body.footerText || null,
+        orgName: req.body.orgName || null,
+        facebookUrl: req.body.facebookUrl || null,
+        twitterUrl: req.body.twitterUrl || null,
+        linkedinUrl: req.body.linkedinUrl || null,
+        youtubeUrl: req.body.youtubeUrl || null,
+        heroTitle: req.body.heroTitle || null,
+        heroSubtitle: req.body.heroSubtitle || null,
+        seoDescription: req.body.seoDescription || null,
+        seoKeywords: req.body.seoKeywords || null,
+        statExamsCount: req.body.statExamsCount || null,
+        statAspirantsCount: req.body.statAspirantsCount || null,
+        statCitiesCount: req.body.statCitiesCount || null,
+        statCentersCount: req.body.statCentersCount || null,
+      })
+      .onConflictDoUpdate({
+        target: schema.settings.id,
+        set: {
+          siteName: req.body.siteName,
+          maintenanceMode: !!req.body.maintenanceMode,
+          allowSelfRegistration: !!req.body.allowSelfRegistration,
+          antiCheatingStrictness: req.body.antiCheatingStrictness,
+          autoSubmitOnViolations: !!req.body.autoSubmitOnViolations,
+          maxViolationsAllowed: req.body.maxViolationsAllowed,
+          allowAIGeneration: !!req.body.allowAIGeneration,
+          contactEmail: req.body.contactEmail || null,
+          contactPhone: req.body.contactPhone || null,
+          contactAddress: req.body.contactAddress || null,
+          footerText: req.body.footerText || null,
+          orgName: req.body.orgName || null,
+          facebookUrl: req.body.facebookUrl || null,
+          twitterUrl: req.body.twitterUrl || null,
+          linkedinUrl: req.body.linkedinUrl || null,
+          youtubeUrl: req.body.youtubeUrl || null,
+          heroTitle: req.body.heroTitle || null,
+          heroSubtitle: req.body.heroSubtitle || null,
+          seoDescription: req.body.seoDescription || null,
+          seoKeywords: req.body.seoKeywords || null,
+          statExamsCount: req.body.statExamsCount || null,
+          statAspirantsCount: req.body.statAspirantsCount || null,
+          statCitiesCount: req.body.statCitiesCount || null,
+          statCentersCount: req.body.statCentersCount || null,
+        }
+      });
+
+    const finalSettings = (await db.select().from(schema.settings).where(eq(schema.settings.id, "system_config")).limit(1))[0];
+    res.json(finalSettings);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to save settings." });
+  }
 });
 
 // Admin creates a notice/announcement
-app.post("/api/admin/notices/create", (req: Request, res: Response) => {
-  const db = readDb();
+app.post("/api/admin/notices/create", async (req: Request, res: Response) => {
   const { title, content, category, isPinned } = req.body;
-  const newNotice: Notice = {
+  const newNotice = {
     id: `notice-${Date.now()}`,
     title,
     content,
@@ -886,34 +699,38 @@ app.post("/api/admin/notices/create", (req: Request, res: Response) => {
     publishedAt: new Date().toISOString(),
     isPinned: !!isPinned
   };
-  if (!db.notices) db.notices = [];
-  db.notices.unshift(newNotice);
-  writeDb(db);
-  logAudit("admin-1", "Created Notice", `Published announcement: ${title}`, req);
-  res.json({ success: true, notice: newNotice });
+
+  try {
+    await db.insert(schema.notices).values(newNotice);
+    await logAudit("admin-1", "Created Notice", `Published announcement: ${title}`, req);
+    res.json({ success: true, notice: newNotice });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to create notice." });
+  }
 });
 
 // Admin deletes a notice/announcement
-app.delete("/api/admin/notices/:id", (req: Request, res: Response) => {
-  const db = readDb();
+app.delete("/api/admin/notices/:id", async (req: Request, res: Response) => {
   const noticeId = req.params.id;
-  if (!db.notices) db.notices = [];
-  const initialCount = db.notices.length;
-  db.notices = db.notices.filter(n => n.id !== noticeId);
-  if (db.notices.length < initialCount) {
-    writeDb(db);
-    logAudit("admin-1", "Deleted Notice", `Removed notice: ${noticeId}`, req);
-    res.json({ success: true });
-  } else {
-    res.status(404).json({ error: "Notice not found" });
+
+  try {
+    const existing = (await db.select().from(schema.notices).where(eq(schema.notices.id, noticeId)).limit(1))[0];
+    if (existing) {
+      await db.delete(schema.notices).where(eq(schema.notices.id, noticeId));
+      await logAudit("admin-1", "Deleted Notice", `Removed notice: ${noticeId}`, req);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: "Notice not found" });
+    }
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete notice." });
   }
 });
 
 // Admin creates a download
-app.post("/api/admin/downloads/create", (req: Request, res: Response) => {
-  const db = readDb();
+app.post("/api/admin/downloads/create", async (req: Request, res: Response) => {
   const { title, description, fileSize, fileType, category } = req.body;
-  const newDownload: DownloadItem = {
+  const newDownload = {
     id: `download-${Date.now()}`,
     title,
     description,
@@ -922,75 +739,83 @@ app.post("/api/admin/downloads/create", (req: Request, res: Response) => {
     category: category || "Syllabus",
     publishedAt: new Date().toISOString()
   };
-  if (!db.downloads) db.downloads = [];
-  db.downloads.unshift(newDownload);
-  writeDb(db);
-  logAudit("admin-1", "Created Download", `Published resource: ${title}`, req);
-  res.json({ success: true, download: newDownload });
+
+  try {
+    await db.insert(schema.downloads).values(newDownload);
+    await logAudit("admin-1", "Created Download", `Published resource: ${title}`, req);
+    res.json({ success: true, download: newDownload });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to create download." });
+  }
 });
 
 // Admin deletes a download
-app.delete("/api/admin/downloads/:id", (req: Request, res: Response) => {
-  const db = readDb();
+app.delete("/api/admin/downloads/:id", async (req: Request, res: Response) => {
   const downloadId = req.params.id;
-  if (!db.downloads) db.downloads = [];
-  const initialCount = db.downloads.length;
-  db.downloads = db.downloads.filter(d => d.id !== downloadId);
-  if (db.downloads.length < initialCount) {
-    writeDb(db);
-    logAudit("admin-1", "Deleted Download", `Removed download: ${downloadId}`, req);
-    res.json({ success: true });
-  } else {
-    res.status(404).json({ error: "Download not found" });
+
+  try {
+    const existing = (await db.select().from(schema.downloads).where(eq(schema.downloads.id, downloadId)).limit(1))[0];
+    if (existing) {
+      await db.delete(schema.downloads).where(eq(schema.downloads.id, downloadId));
+      await logAudit("admin-1", "Deleted Download", `Removed download: ${downloadId}`, req);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: "Download not found" });
+    }
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete download." });
   }
 });
 
 // Admin manually creates an exam
-app.post("/api/admin/exams/create", (req: Request, res: Response) => {
+app.post("/api/admin/exams/create", async (req: Request, res: Response) => {
   const { title, description, category, duration, passingScore, negativeMarkingValue, difficulty, questions } = req.body;
-  const db = readDb();
 
-  const examId = `exam-${Date.now()}`;
-  const newExam: Exam = {
-    id: examId,
-    title,
-    description,
-    category: category || ExamCategory.APTITUDE_TEST,
-    duration: parseInt(duration) || 30,
-    totalQuestions: Array.isArray(questions) ? questions.length : 0,
-    totalMarks: Array.isArray(questions) ? questions.length * 10 : 0,
-    passingScore: parseInt(passingScore) || 50,
-    negativeMarkingValue: parseFloat(negativeMarkingValue) || 0,
-    status: "published",
-    subjects: ["General Assessment"],
-    difficulty: difficulty || "Medium"
-  };
+  try {
+    const examId = `exam-${Date.now()}`;
+    const newExam = {
+      id: examId,
+      title,
+      description,
+      category: category || ExamCategory.APTITUDE_TEST,
+      duration: parseInt(duration) || 30,
+      totalQuestions: Array.isArray(questions) ? questions.length : 0,
+      totalMarks: Array.isArray(questions) ? questions.length * 10 : 0,
+      passingScore: parseInt(passingScore) || 50,
+      negativeMarkingValue: parseFloat(negativeMarkingValue) || 0,
+      status: "published",
+      subjects: ["General Assessment"],
+      difficulty: difficulty || "Medium"
+    };
 
-  db.exams.push(newExam);
+    await db.insert(schema.exams).values(newExam);
 
-  if (Array.isArray(questions)) {
-    questions.forEach((q, idx) => {
-      const newQuestion: Question = {
-        id: `q-${examId}-${idx}`,
-        examId: examId,
-        type: q.type || QuestionType.SINGLE_CORRECT,
-        text: q.text,
-        options: q.options || [],
-        correctAnswer: q.correctAnswer,
-        explanation: q.explanation || "No explanation provided.",
-        subject: q.subject || "General",
-        topic: q.topic || "Topic",
-        difficulty: q.difficulty || "Medium",
-        estimatedSolveTime: 30
-      };
-      db.questions.push(newQuestion);
-    });
+    if (Array.isArray(questions)) {
+      for (let idx = 0; idx < questions.length; idx++) {
+        const q = questions[idx];
+        const newQuestion = {
+          id: `q-${examId}-${idx}`,
+          examId: examId,
+          type: q.type || QuestionType.SINGLE_CORRECT,
+          text: q.text,
+          options: q.options || [],
+          correctAnswer: q.correctAnswer,
+          explanation: q.explanation || "No explanation provided.",
+          subject: q.subject || "General",
+          topic: q.topic || "Topic",
+          difficulty: q.difficulty || "Medium",
+          estimatedSolveTime: 30
+        };
+        await db.insert(schema.questions).values(newQuestion);
+      }
+    }
+
+    await logAudit("admin-1", "Created Exam", `Manually published a mock test titled: ${title}`, req);
+    res.json({ success: true, exam: newExam });
+  } catch (error) {
+    console.error("Create exam error:", error);
+    res.status(500).json({ error: "Failed to create exam." });
   }
-
-  writeDb(db);
-  logAudit("admin-1", "Created Exam", `Manually published a mock test titled: ${title}`, req);
-
-  res.json({ success: true, exam: newExam });
 });
 
 // ==========================================
@@ -1162,6 +987,7 @@ Return ONLY a valid JSON array matching this schema.`;
     res.status(500).json({ error: `AI Smart Import failed: ${err.message}` });
   }
 });
+
 
 
 // ==========================================

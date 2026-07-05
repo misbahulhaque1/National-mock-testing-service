@@ -1,0 +1,6 @@
+{
+  "name": "National Mock Testing Service",
+  "description": "The official National Mock Testing Service (NMTS) portal for government recruitment, university admissions, and public exams. Practice today, perform better tomorrow.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

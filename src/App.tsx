@@ -45,10 +45,10 @@ export default function App() {
 
   // Stats for Landing Page
   const [stats, setStats] = useState({
-    users: 0,
-    mocks: 0,
-    passed: 0,
-    uptime: "100%"
+    users: null as number | null,
+    mocks: null as number | null,
+    passed: null as number | null,
+    uptime: "Unavailable"
   });
 
   // CMS Settings state
@@ -364,15 +364,15 @@ export default function App() {
               <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="bg-white border rounded-lg p-6 grid grid-cols-2 md:grid-cols-4 gap-6 shadow-sm text-center">
                   <div>
-                    <h3 className="text-2xl font-black text-[#003366]">{stats.users}</h3>
+                    <h3 className="text-2xl font-black text-[#003366]">{stats.users ?? "—"}</h3>
                     <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mt-1">Simulated Candidates</p>
                   </div>
                   <div>
-                    <h3 className="text-2xl font-black text-[#0F8B4C]">{stats.mocks} Active</h3>
+                    <h3 className="text-2xl font-black text-[#0F8B4C]">{stats.mocks ?? "—"}</h3>
                     <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mt-1">Recruitment Mocks</p>
                   </div>
                   <div>
-                    <h3 className="text-2xl font-black text-[#F9A825]">{stats.passed}</h3>
+                    <h3 className="text-2xl font-black text-[#F9A825]">{stats.passed ?? "—"}</h3>
                     <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mt-1">Conferred Certificates</p>
                   </div>
                   <div>

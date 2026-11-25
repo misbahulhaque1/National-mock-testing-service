@@ -24,7 +24,7 @@ dotenv.config();
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 // Global default settings
 const defaultSettings: SystemSettings = {
